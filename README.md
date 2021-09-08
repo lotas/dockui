@@ -1,28 +1,12 @@
-bubble tea ui gui https://github.com/charmbracelet/bubbletea
 
-disk usage: docker
+# Docker Disk space usage 
 
-# Docker API
+This is a TUI tool to manage and see how docker uses disk space.
 
+Why: on Mac running out of disk space happens quite often. 
+This utility can be used to see what can be deleted and pruned.
 
-```sh
-curl --unix-socket /var/run/docker.sock -X GET http://localhost/info
-```
+## Install & run
 
-
-# Docker
-
-```sh
-docker system prune
-
-docker system df -v
-
-docker rmi $(docker images -q --no-trunc)
-
-docker volume prune
-
-```
-
-# Python
-
-`pip install docker`
+`pip install -r requirements.txt`
+`python dockui.py`
