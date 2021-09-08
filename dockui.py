@@ -1,5 +1,7 @@
 import docker
 import curses
+import json
+from collections.abc import Iterable
 from utils import convert_size, format_date, determine_root_fs_usage
 
 
@@ -36,6 +38,23 @@ class DisplayTableRow:
             return self.row[index]
         return ""
 
+    def _get_display_info(self):
+        keys = self.row.keys()
+        max_len = max([len(k) for k in keys])
+        lines = []
+        for k in keys:
+            line = f'{k:{max_len}}: {self.__getitem__(k)}'
+            i = 0
+            for l in line.split('\n'):
+                if i > 0:
+                    # ident json 
+                    lines.append(" " * max_len + ": " + l)
+                else:
+                    lines.append(l)
+                i += 1
+
+        return lines
+
 
 class DisplayTableColumn:
     def __init__(self, name, width=20, align='left'):
@@ -48,9 +67,15 @@ class DisplayTableVolumeRow(DisplayTableRow):
     def _get_size(self):
         return convert_size(self.row['UsageData']['Size'])
 
+    def _get_usagedata(self):
+        return json.dumps(self.row['UsageData'], sort_keys=True, indent=2)
+
+    def _get_labels(self):
+        return json.dumps(self.row['Labels'], sort_keys=True, indent=2)
+
 
 class DisplayTableContainerRow(DisplayTableRow):
-    def _get_size(self):
+    def _get_sizerootfs(self):
         return convert_size(self.row['SizeRootFs'])
 
     def _get_created(self):
@@ -59,19 +84,27 @@ class DisplayTableContainerRow(DisplayTableRow):
     def _get_names(self):
         return ",".join(self.row['Names'])
 
+    def _get_networksettings(self):
+        return json.dumps(self.row['NetworkSettings'], sort_keys=True, indent=2)
+
 
 class DisplayTableImagesRow(DisplayTableRow):
-    def _get_tags(self):
-        return ",".join(self.row['RepoTags'])
+    def _get_repotags(self):
+        if isinstance(self.row['RepoTags'], Iterable):
+            return ",".join(self.row['RepoTags'])
+        return self.row['RepoTags']
 
     def _get_size(self):
         return convert_size(self.row['Size'])
 
-    def _get_shared(self):
+    def _get_sharedsize(self):
         return convert_size(self.row['SharedSize'])
 
-    def _get_virtual(self):
+    def _get_virtualsize(self):
         return convert_size(self.row['VirtualSize'])
+
+    def _get_labels(self):
+        return json.dumps(self.row['Labels'], sort_keys=True, indent=2)
 
 
 class DockUI:
@@ -84,6 +117,11 @@ class DockUI:
     RENDER_MODE_ROWS = 0
     RENDER_MODE_TABLE = 1
 
+    INFO_MESSAGE_COLOR = 1
+    STATUS_BAR_COLOR = 2
+    TEXT_PANEL_COLOR = 3
+    TEXT_ITEM_DETAILS = 4
+
     MENU_COLOR_ON = 10
     MENU_COLOR_OFF = 11
     MENU_COLOR_SIZES = 12
@@ -94,7 +132,6 @@ class DockUI:
     def __init__(self, w, docker_client):
         self.w = w
         self.docker_client = docker_client
-        self._fetch_docker_info()
 
         self.k = 0
         self.width = 0
@@ -113,11 +150,17 @@ class DockUI:
         # Clear and refresh the screen for a blank canvas
         w.clear()
 
+        curses.noecho()
         # Start colors in curses
         curses.start_color()
-        curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)
-        curses.init_pair(2, curses.COLOR_RED, curses.COLOR_BLACK)
-        curses.init_pair(3, curses.COLOR_BLACK, curses.COLOR_WHITE)
+        curses.init_pair(self.INFO_MESSAGE_COLOR,
+                         curses.COLOR_CYAN, curses.COLOR_BLACK)
+        curses.init_pair(self.STATUS_BAR_COLOR,
+                         curses.COLOR_BLACK, curses.COLOR_WHITE)
+        curses.init_pair(self.TEXT_PANEL_COLOR,
+                         curses.COLOR_WHITE, curses.COLOR_BLACK)
+        curses.init_pair(self.TEXT_ITEM_DETAILS,
+                         curses.COLOR_GREEN, curses.COLOR_BLACK)
 
         curses.init_pair(self.MENU_COLOR_ON,
                          curses.COLOR_BLACK, curses.COLOR_YELLOW)
@@ -130,12 +173,59 @@ class DockUI:
         curses.init_pair(self.LINE_SELECTED,
                          curses.COLOR_BLACK, curses.COLOR_RED)
 
+        self._fetch_docker_info()
+        self._prepare_content()
         self.loop()
 
+    def show_text_panel(self, lines, close_on_keypress=False, color=None):
+        height, width = self.w.getmaxyx()
+        lines_count = len(lines)
+        safe_width = width - 4
+        maxwidth = min(safe_width, max([len(k) for k in lines]))
+
+        win = curses.newwin(lines_count + 2,
+                            min(safe_width, maxwidth + 2),
+                            (height - lines_count) // 2,
+                            (width - min(safe_width, maxwidth)) // 2)
+        win.attrset(curses.color_pair(
+            color if color else self.TEXT_PANEL_COLOR))
+        win.box()
+
+        for i in range(lines_count):
+            win.addstr(i + 1, 1, lines[i][0:safe_width])
+
+        win.touchwin()
+        win.refresh()
+
+        if close_on_keypress:
+            win.getch()
+            del win
+            return None
+
+        return win
+
+    def show_info(self, message: str, close_on_keypress=False):
+        return self.show_text_panel([message],
+                                    close_on_keypress=close_on_keypress,
+                                    color=self.INFO_MESSAGE_COLOR)
+
     def _fetch_docker_info(self):
+        win = self.show_info('Fetching docker info...')
         self.docker_info = self.docker_client.info()
         self.docker_df = self.docker_client.df()
         self.docker_root_fs = determine_root_fs_usage(self.docker_client)
+        del win
+
+    def _prepare_content(self):
+        mode_handlers = {
+            self.VIEW_MODE_SYSTEM_INFO: self.draw_system_info,
+            self.VIEW_MODE_IMAGES: self.draw_images,
+            self.VIEW_MODE_VOLUMES: self.draw_volumes,
+            self.VIEW_MODE_CONTAINERS: self.draw_containers,
+            self.VIEW_MODE_BUILD_CACHE: self.draw_build_cache,
+        }
+
+        mode_handlers[self.view_mode]()
 
     def process_input(self):
         old_mode = self.view_mode
@@ -148,6 +238,7 @@ class DockUI:
         if old_mode != self.view_mode:
             self.cursor_y = 0
             self.offset_y = 0
+            self._prepare_content()
 
         if self.k == ord('r'):
             self._fetch_docker_info()
@@ -160,8 +251,9 @@ class DockUI:
             self.cursor_x = self.cursor_x + 1
         elif self.k == curses.KEY_LEFT or self.k == ord('h'):
             self.cursor_x = self.cursor_x - 1
-        elif self.k == curses.KEY_ENTER:
+        elif self.k == curses.KEY_ENTER or self.k == 10 or self.k == 13:
             self.clicked_row = self.cursor_y
+            self.open_item_info()
 
         self.cursor_x = min(self.width - 1, max(0, self.cursor_x))
         self.cursor_y = min(len(self.rows) - 1, max(0, self.cursor_y))
@@ -176,7 +268,6 @@ class DockUI:
         while (self.k != ord('q')):
             self.w.clear()
             self.height, self.width = self.w.getmaxyx()
-
             self.process_input()
             self.draw()
             self.w.refresh()
@@ -186,15 +277,6 @@ class DockUI:
         self.w.box()
         self.draw_header()
 
-        mode_handlers = {
-            self.VIEW_MODE_SYSTEM_INFO: self.draw_system_info,
-            self.VIEW_MODE_IMAGES: self.draw_images,
-            self.VIEW_MODE_VOLUMES: self.draw_volumes,
-            self.VIEW_MODE_CONTAINERS: self.draw_containers,
-            self.VIEW_MODE_BUILD_CACHE: self.draw_build_cache,
-        }
-
-        mode_handlers[self.view_mode]()
         if self.render_mode == self.RENDER_MODE_ROWS:
             self.draw_rows()
         elif self.render_mode == self.RENDER_MODE_TABLE:
@@ -308,10 +390,10 @@ class DockUI:
         self.rows = [DisplayTableImagesRow(k) for k in sorted(
             self.docker_df['Images'], key=lambda x: x['Size'], reverse=True)]
         self.cols = [
-            DisplayTableColumn('Tags', 0.5),
+            DisplayTableColumn('RepoTags', 0.5),
             DisplayTableColumn('Size', 12, 'right'),
-            DisplayTableColumn('Shared', 12, 'right'),
-            DisplayTableColumn('Virtual', 12, 'right')
+            DisplayTableColumn('SharedSize', 12, 'right'),
+            DisplayTableColumn('VirtualSize', 12, 'right')
         ]
         self.render_mode = self.RENDER_MODE_TABLE
 
@@ -333,7 +415,7 @@ class DockUI:
             DisplayTableColumn('Command', 0.25),
             DisplayTableColumn('Image', 0.15),
             DisplayTableColumn('State', 15),
-            DisplayTableColumn('Size', 12, 'right'),
+            DisplayTableColumn('SizeRootFs', 12, 'right'),
             DisplayTableColumn('Created', 18, 'right'),
         ]
         self.render_mode = self.RENDER_MODE_TABLE
@@ -356,11 +438,22 @@ class DockUI:
                 self.width - 2 - len(statusbarstr))
 
         # Render status bar
-        self.w.attron(curses.color_pair(3))
+        self.w.attron(curses.color_pair(self.STATUS_BAR_COLOR))
         self.w.addstr(self.height - 2, 1, statusbarstr)
         self.w.addstr(self.height - 2, len(statusbarstr),
                       " " * (self.width - len(statusbarstr) - 2))
-        self.w.attroff(curses.color_pair(3))
+        self.w.attroff(curses.color_pair(self.STATUS_BAR_COLOR))
+
+    def open_item_info(self):
+        item = self.rows[self.cursor_y]
+        if isinstance(item, str):
+            content = [item]
+        elif isinstance(item, DisplayTableRow):
+            content = item._get_display_info()
+        else:
+            content = [str(item)]
+        self.show_text_panel(
+            content, color=self.TEXT_ITEM_DETAILS, close_on_keypress=True)
 
 
 def main():
