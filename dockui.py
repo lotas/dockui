@@ -75,6 +75,9 @@ class DisplayTableVolumeRow(DisplayTableRow):
 
 
 class DisplayTableContainerRow(DisplayTableRow):
+    def id(self):
+        return self.row['Id']
+
     def _get_sizerootfs(self):
         return convert_size(self.row['SizeRootFs'])
 
@@ -240,18 +243,21 @@ class DockUI:
             self.offset_y = 0
             self._prepare_content()
 
-        if self.k == ord('r'):
+        keyname = curses.keyname(self.k).decode('utf-8')
+        if keyname == '^R':
             self._fetch_docker_info()
+        elif keyname == '^D':
+            self._delete_selected_item()
 
-        if self.k == curses.KEY_DOWN or self.k == ord('j'):
+        if self.k in [curses.KEY_DOWN, ord('j')]:
             self.cursor_y = self.cursor_y + 1
-        elif self.k == curses.KEY_UP or self.k == ord('k'):
+        elif self.k in [curses.KEY_UP, ord('k')]:
             self.cursor_y = self.cursor_y - 1
-        elif self.k == curses.KEY_RIGHT or self.k == ord('l'):
+        elif self.k in [curses.KEY_RIGHT, ord('l')]:
             self.cursor_x = self.cursor_x + 1
-        elif self.k == curses.KEY_LEFT or self.k == ord('h'):
+        elif self.k in [curses.KEY_LEFT, ord('h')]:
             self.cursor_x = self.cursor_x - 1
-        elif self.k == curses.KEY_ENTER or self.k == 10 or self.k == 13:
+        elif self.k in [curses.KEY_ENTER, 10, 13]:
             self.clicked_row = self.cursor_y
             self.open_item_info()
 
@@ -432,7 +438,8 @@ class DockUI:
         self.render_mode = self.RENDER_MODE_ROWS
 
     def draw_statusbar(self):
-        statusbarstr = "Press 'q' to exit | TAB to switch views | 'r' to refresh values | 'd' to delete active item"
+        statusbarstr = ("Press 'q' to exit | TAB to switch views | "
+                        "'ctrl+r' to refresh values | 'ctrl+d' to delete selected item")
         statusbarstr = statusbarstr + \
             f"({self.offset_y}) {self.cursor_y + 1}/{len(self.rows)}".rjust(
                 self.width - 2 - len(statusbarstr))
@@ -444,6 +451,10 @@ class DockUI:
                       " " * (self.width - len(statusbarstr) - 2))
         self.w.attroff(curses.color_pair(self.STATUS_BAR_COLOR))
 
+
+    """
+    actions
+    """
     def open_item_info(self):
         item = self.rows[self.cursor_y]
         if isinstance(item, str):
@@ -454,6 +465,18 @@ class DockUI:
             content = [str(item)]
         self.show_text_panel(
             content, color=self.TEXT_ITEM_DETAILS, close_on_keypress=True)
+
+    def _delete_selected_item(self):
+        item = self.rows[self.cursor_y]
+
+        if isinstance(item, DisplayTableContainerRow):
+            id = item.id()
+            w = self.show_info(f'Deleting container {id}',close_on_keypress=True)
+            container = self.docker_client.containers.get(id)
+            container.remove(v=True) # with volumes
+            del w
+
+        self._fetch_docker_info()
 
 
 def main():
