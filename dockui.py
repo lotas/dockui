@@ -26,6 +26,11 @@ class DisplayKeyVal(DisplayStr):
         super().__init__(f"{key:24}: {val}")
 
 
+class DisplaySeparator(DisplayStr):
+    def __init__(self):
+        super().__init__(" ")
+
+
 class DisplayTableRow:
     def __init__(self, row):
         self.row = row
@@ -47,7 +52,7 @@ class DisplayTableRow:
             i = 0
             for l in line.split('\n'):
                 if i > 0:
-                    # ident json 
+                    # ident json
                     lines.append(" " * max_len + ": " + l)
                 else:
                     lines.append(l)
@@ -85,7 +90,7 @@ class DisplayTableContainerRow(DisplayTableRow):
         return format_date(self.row['Created'])
 
     def _get_names(self):
-        return ",".join(self.row['Names'])
+        return ",".join([k[1:] for k in self.row['Names']])
 
     def _get_networksettings(self):
         return json.dumps(self.row['NetworkSettings'], sort_keys=True, indent=2)
@@ -109,13 +114,27 @@ class DisplayTableImagesRow(DisplayTableRow):
     def _get_labels(self):
         return json.dumps(self.row['Labels'], sort_keys=True, indent=2)
 
+class DisplayTableBuildCacheRow(DisplayTableRow):
+    def _get_size(self):
+        return convert_size(self.row['Size'])
+
+    def _get_lastusedat(self):
+        return format_date(self.row['LastUsedAt'])
+
+    def _get_shared(self):
+        return 'yes' if self.row['Shared'] else 'no'
+
+    def _get_inuse(self):
+        return 'yes' if self.row['InUse'] else 'no'
+
 
 class DockUI:
-    VIEW_MODE_SYSTEM_INFO = 0
+    VIEW_MODE_SUMMARY = 0
     VIEW_MODE_IMAGES = 1
     VIEW_MODE_CONTAINERS = 2
     VIEW_MODE_VOLUMES = 3
     VIEW_MODE_BUILD_CACHE = 4
+    VIEW_MODE_SYSTEM_INFO = 5
 
     RENDER_MODE_ROWS = 0
     RENDER_MODE_TABLE = 1
@@ -144,7 +163,7 @@ class DockUI:
         self.clicked_row = -1
         self.offset_y = 0
 
-        self.view_mode = self.VIEW_MODE_SYSTEM_INFO
+        self.view_mode = self.VIEW_MODE_SUMMARY
         self.render_mode = self.RENDER_MODE_ROWS
 
         self.rows = []
@@ -221,11 +240,12 @@ class DockUI:
 
     def _prepare_content(self):
         mode_handlers = {
-            self.VIEW_MODE_SYSTEM_INFO: self.draw_system_info,
+            self.VIEW_MODE_SUMMARY: self.draw_summary,
             self.VIEW_MODE_IMAGES: self.draw_images,
             self.VIEW_MODE_VOLUMES: self.draw_volumes,
             self.VIEW_MODE_CONTAINERS: self.draw_containers,
             self.VIEW_MODE_BUILD_CACHE: self.draw_build_cache,
+            self.VIEW_MODE_SYSTEM_INFO: self.draw_system_info,
         }
 
         mode_handlers[self.view_mode]()
@@ -236,18 +256,21 @@ class DockUI:
         if self.k == curses.KEY_BTAB:
             self.view_mode = max(0, self.view_mode - 1)
         elif self.k == ord('\t'):
-            self.view_mode = (self.view_mode + 1) % 5
+            self.view_mode = (self.view_mode + 1) % 6
 
         if old_mode != self.view_mode:
             self.cursor_y = 0
             self.offset_y = 0
             self._prepare_content()
 
-        keyname = curses.keyname(self.k).decode('utf-8')
-        if keyname == '^R':
-            self._fetch_docker_info()
-        elif keyname == '^D':
-            self._delete_selected_item()
+        try:
+            keyname = curses.keyname(self.k).decode('utf-8')
+            if keyname == '^R':
+                self._fetch_docker_info()
+            elif keyname == '^D':
+                self._delete_selected_item()
+        except ValueError:
+            pass
 
         if self.k in [curses.KEY_DOWN, ord('j')]:
             self.cursor_y = self.cursor_y + 1
@@ -293,11 +316,12 @@ class DockUI:
 
     def draw_header(self):
         menu_items = {
-            "System info": self.VIEW_MODE_SYSTEM_INFO,
+            "Summary": self.VIEW_MODE_SUMMARY,
             f"Images {self.docker_info['Images']}": self.VIEW_MODE_IMAGES,
             f"Containers {self.docker_info['Containers']}": self.VIEW_MODE_CONTAINERS,
             f"Volumes {len(self.docker_df['Volumes'])}": self.VIEW_MODE_VOLUMES,
             "BuildCache": self.VIEW_MODE_BUILD_CACHE,
+            "System info": self.VIEW_MODE_SYSTEM_INFO,
         }
 
         offset = 1
@@ -322,7 +346,7 @@ class DockUI:
         self.w.addstr(2, 1, "─" * (self.width - 2))
 
     def _client_height(self):
-        return self.height - 4
+        return self.height - 5
 
     def _items_end_offset(self):
         return min(len(self.rows), self.offset_y + self._client_height())
@@ -376,11 +400,46 @@ class DockUI:
                 self.w.attron(curses.A_BOLD)
                 self.w.attron(curses.color_pair(self.MENU_COLOR_SIZES))
 
-            render_row(start_y + i, self.rows[i])
+            render_row(start_y + i - self.offset_y, self.rows[i])
 
             if i == self.cursor_y:
                 self.w.attroff(curses.A_BOLD)
                 self.w.attroff(curses.color_pair(self.MENU_COLOR_SIZES))
+
+    def draw_summary(self):
+        di = self.docker_info
+        df = self.docker_df
+        fs = self.docker_root_fs
+        
+        images_size = sum([k['Size'] for k in df['Images']])
+        images_shared_size = sum([k['SharedSize'] for k in df['Images']])
+
+        self.rows = [
+            DisplaySeparator(),
+
+            DisplayKeyVal("Root fs total", convert_size(fs[1])),
+            DisplayKeyVal("Root fs used",
+                          f'{convert_size(fs[0])}   {round(fs[0]/fs[1]*100, 2)}%'),
+            DisplayKeyVal("Root fs available:",
+                          f'{convert_size(fs[2])}   {round(fs[2]/fs[1]*100, 2)}%'),
+
+            DisplaySeparator(),
+            DisplayKeyVal("Total images", len(df['Images'])),
+            DisplayKeyVal("Total images size", f'{convert_size(images_size)}  ({convert_size(images_shared_size)} shared)'),
+            
+            DisplaySeparator(),
+            DisplayKeyVal("Total volumes", len(df['Volumes'])),
+            DisplayKeyVal("Total volumes size", convert_size(sum([k['UsageData']['Size'] for k in df['Volumes']]))),
+
+            DisplaySeparator(),
+            DisplayKeyVal("Total containers", len(df['Containers'])),
+            DisplayKeyVal("Total containers size", convert_size(sum([k['SizeRootFs'] for k in df['Containers']]))),
+
+            DisplaySeparator(),
+            DisplayKeyVal("Total build caches", len(df['BuildCache'])),
+            DisplayKeyVal("Total build caches size", convert_size(sum([k['Size'] for k in df['BuildCache']]))),
+        ]
+        self.render_mode = self.RENDER_MODE_ROWS
 
     def draw_system_info(self):
         di = self.docker_info
@@ -417,7 +476,7 @@ class DockUI:
         self.rows = [DisplayTableContainerRow(k) for k in sorted(
             self.docker_df['Containers'], key=lambda x: x['Created'], reverse=True)]
         self.cols = [
-            DisplayTableColumn('Names', 0.25),
+            DisplayTableColumn('Names', 35),
             DisplayTableColumn('Command', 0.25),
             DisplayTableColumn('Image', 0.15),
             DisplayTableColumn('State', 15),
@@ -427,21 +486,24 @@ class DockUI:
         self.render_mode = self.RENDER_MODE_TABLE
 
     def draw_build_cache(self):
-        self.rows = [(
-            f'{k["Type"]:12} '
-            f'{k["Description"][0:55]:60} '
-            f'{convert_size(k["Size"]):>12} '
-            'Shared' if k["Shared"] else 'NotShared'
-            'In Use' if k["InUse"] else 'NotInUse'
-            f'{k["LastUsedAt"]:>15}'
-        ) for k in sorted(self.docker_df['BuildCache'], key=lambda x: x['Size'], reverse=True)[0:15]]
-        self.render_mode = self.RENDER_MODE_ROWS
+        self.rows = [DisplayTableBuildCacheRow(k) for k in sorted(
+            self.docker_df['BuildCache'], key=lambda x: x['Size'], reverse=True)]
+        self.cols = [
+            DisplayTableColumn('Type', 20),
+            DisplayTableColumn('Description', 0.40),
+            DisplayTableColumn('Size', 12, 'right'),
+            DisplayTableColumn('Shared', 10, 'right'),
+            DisplayTableColumn('InUse', 10, 'right'),
+            DisplayTableColumn('LastUsedAt', 18, 'right'),
+        ]
+        self.render_mode = self.RENDER_MODE_TABLE
+
 
     def draw_statusbar(self):
         statusbarstr = ("Press 'q' to exit | TAB to switch views | "
                         "'ctrl+r' to refresh values | 'ctrl+d' to delete selected item")
         statusbarstr = statusbarstr + \
-            f"({self.offset_y}) {self.cursor_y + 1}/{len(self.rows)}".rjust(
+                f"({self.offset_y}:{self._items_end_offset()}) {self.cursor_y + 1}/{len(self.rows)}".rjust(
                 self.width - 2 - len(statusbarstr))
 
         # Render status bar
@@ -451,10 +513,10 @@ class DockUI:
                       " " * (self.width - len(statusbarstr) - 2))
         self.w.attroff(curses.color_pair(self.STATUS_BAR_COLOR))
 
-
     """
     actions
     """
+
     def open_item_info(self):
         item = self.rows[self.cursor_y]
         if isinstance(item, str):
@@ -471,9 +533,10 @@ class DockUI:
 
         if isinstance(item, DisplayTableContainerRow):
             id = item.id()
-            w = self.show_info(f'Deleting container {id}',close_on_keypress=True)
+            w = self.show_info(
+                f'Deleting container {id}', close_on_keypress=True)
             container = self.docker_client.containers.get(id)
-            container.remove(v=True) # with volumes
+            container.remove(v=True)  # with volumes
             del w
 
         self._fetch_docker_info()

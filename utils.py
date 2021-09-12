@@ -1,5 +1,6 @@
 import math
 import datetime as dt
+from dateutil import parser
 
 
 def convert_size(size_bytes: int) -> str:
@@ -13,8 +14,11 @@ def convert_size(size_bytes: int) -> str:
     return "%s %s" % (s, size_name[i])
 
 
-def format_date(timestamp: int) -> str:
-    return dt.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M')
+def format_date(timestamp) -> str:
+    fmt = '%Y-%m-%d %H:%M'
+    if isinstance(timestamp, str):
+        return parser.parse(timestamp).strftime(fmt)
+    return dt.datetime.fromtimestamp(timestamp).strftime(fmt)
 
 
 def determine_root_fs_usage(client):
@@ -23,7 +27,8 @@ def determine_root_fs_usage(client):
     if len(lines) > 1:
         cols = lines[1].split()
         if len(cols) > 2:
-            total = int(cols[3]) * 1024
+            total = int(cols[1]) * 1024
             used = int(cols[2]) * 1024
-            return (used, total)
-    return (0, 0)
+            available = int(cols[3]) * 1024
+            return (used, total, available)
+    return (0, 0, 0)
