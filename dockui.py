@@ -11,6 +11,8 @@ def init_docker():
 
 
 class DisplayStr:
+    __slots__ = 'row'
+
     def __init__(self, row):
         self.row = row
 
@@ -22,16 +24,22 @@ class DisplayStr:
 
 
 class DisplayKeyVal(DisplayStr):
+    __slots__ = 'row'
+
     def __init__(self, key, val):
         super().__init__(f"{key:24}: {val}")
 
 
 class DisplaySeparator(DisplayStr):
+    __slots__ = 'row'
+
     def __init__(self):
         super().__init__(" ")
 
 
 class DisplayTableRow:
+    __slots__ = 'row'
+
     def __init__(self, row):
         self.row = row
 
@@ -62,6 +70,8 @@ class DisplayTableRow:
 
 
 class DisplayTableColumn:
+    __slots__ = 'name', 'width', 'align'
+
     def __init__(self, name, width=20, align='left'):
         self.name = name
         self.width = width
@@ -69,6 +79,8 @@ class DisplayTableColumn:
 
 
 class DisplayTableVolumeRow(DisplayTableRow):
+    __slots__ = 'row'
+
     def _get_size(self):
         return convert_size(self.row['UsageData']['Size'])
 
@@ -80,6 +92,8 @@ class DisplayTableVolumeRow(DisplayTableRow):
 
 
 class DisplayTableContainerRow(DisplayTableRow):
+    __slots__ = 'row'
+
     def id(self):
         return self.row['Id']
 
@@ -97,6 +111,8 @@ class DisplayTableContainerRow(DisplayTableRow):
 
 
 class DisplayTableImagesRow(DisplayTableRow):
+    __slots__ = 'row'
+
     def _get_repotags(self):
         if isinstance(self.row['RepoTags'], Iterable):
             return ",".join(self.row['RepoTags'])
@@ -115,6 +131,8 @@ class DisplayTableImagesRow(DisplayTableRow):
         return json.dumps(self.row['Labels'], sort_keys=True, indent=2)
 
 class DisplayTableBuildCacheRow(DisplayTableRow):
+    __slots__ = 'row'
+
     def _get_size(self):
         return convert_size(self.row['Size'])
 
@@ -168,9 +186,6 @@ class DockUI:
 
         self.rows = []
         self.cols = []
-
-        # Clear and refresh the screen for a blank canvas
-        w.clear()
 
         curses.noecho()
         # Start colors in curses
@@ -295,7 +310,7 @@ class DockUI:
 
     def loop(self):
         while (self.k != ord('q')):
-            self.w.clear()
+            self.w.erase()
             self.height, self.width = self.w.getmaxyx()
             self.process_input()
             self.draw()
