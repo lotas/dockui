@@ -98,7 +98,7 @@ class DisplayTableSummaryRow(DisplayTableRow):
             "Type": type,
             "Value": value,
             "Progress": self.get_progress(50),
-            "Percent": f"{round(progress * 100, 1)}%",
+            "Percent": f"{round(progress * 100, 1)}%" if progress > 0 else "",
         }
 
     def get_progress(self, width):

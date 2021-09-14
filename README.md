@@ -13,7 +13,7 @@ This utility can be used to see what can be deleted and pruned.
 
 ## Screenshots
 
-![](docs/2021-09-14-23-03-07.png)
+![](docs/2021-09-14-23-07-52.png)
 
 ![](docs/2021-09-14-23-03-25.png)
 
