@@ -15,7 +15,7 @@ def convert_size(size_bytes: int) -> str:
 
 
 def format_date(timestamp) -> str:
-    fmt = '%Y-%m-%d %H:%M'
+    fmt = "%Y-%m-%d %H:%M"
     if isinstance(timestamp, str):
         return parser.parse(timestamp).strftime(fmt)
     return dt.datetime.fromtimestamp(timestamp).strftime(fmt)
@@ -23,7 +23,7 @@ def format_date(timestamp) -> str:
 
 def determine_root_fs_usage(client):
     du = client.containers.run("alpine", "df", remove=True)
-    lines = du.decode('utf-8').splitlines()
+    lines = du.decode("utf-8").splitlines()
     if len(lines) > 1:
         cols = lines[1].split()
         if len(cols) > 2:
@@ -32,3 +32,18 @@ def determine_root_fs_usage(client):
             available = int(cols[3]) * 1024
             return (used, total, available)
     return (0, 0, 0)
+
+
+def progress_bar(width: int, progress: float) -> str:
+    """
+    Borrowed from https://mike42.me/blog/tag/python
+    """
+    progress = min(1, max(0, progress))
+    whole_width = math.floor(progress * width)
+    remainder_width = (progress * width) % 1
+    part_width = math.floor(remainder_width * 8)
+    part_char = [" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉"][part_width]
+    if (width - whole_width - 1) < 0:
+        part_char = ""
+    line = "[" + "█" * whole_width + part_char + " " * (width - whole_width - 1) + "]"
+    return line
