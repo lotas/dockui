@@ -34,6 +34,19 @@ def determine_root_fs_usage(client):
     return (0, 0, 0)
 
 
+def get_path_disk_usage(client, path: str):
+    du = client.containers.run(
+        "alpine",
+        ["du", "-h", "-d", "1", path],
+        # ["ls", "-la", path],
+        remove=True,
+        volumes={
+            "/var/lib/docker/volumes": {"bind": "/var/lib/docker/volumes", "mode": "ro"}
+        },
+    )
+    return du.decode("utf-8").splitlines()
+
+
 def progress_bar(width: int, progress: float) -> str:
     """
     Borrowed from https://mike42.me/blog/tag/python

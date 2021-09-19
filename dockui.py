@@ -4,7 +4,13 @@ import docker
 import curses
 import json
 from collections.abc import Iterable
-from utils import convert_size, format_date, determine_root_fs_usage, progress_bar
+from utils import (
+    convert_size,
+    format_date,
+    determine_root_fs_usage,
+    get_path_disk_usage,
+    progress_bar,
+)
 
 
 CONFIG = {"BLOCKING_TIMEOUT": 100}
@@ -131,6 +137,14 @@ class DisplayTableVolumeRow(DisplayTableRow):
     def _get_labels(self):
         return json.dumps(self.row["Labels"], sort_keys=True, indent=2)
 
+    def _get_display_info(self, client):
+        data = super()._get_display_info()
+
+        # data += [self.row["Mountpoint"], str(client)]
+        root = self.row["Mountpoint"]
+        du_entries = [k.replace(root, " ") for k in get_path_disk_usage(client, root)]
+        return data + ["-" * 50, "Disk Usage:"] + du_entries
+
 
 class DisplayTableContainerRow(DisplayTableRow):
     __slots__ = "row"
@@ -200,9 +214,10 @@ class DockUI:
     RENDER_MODE_TABLE = 1
 
     INFO_MESSAGE_COLOR = 1
-    STATUS_BAR_COLOR = 2
-    TEXT_PANEL_COLOR = 3
-    TEXT_ITEM_DETAILS = 4
+    TEXT_PANEL_COLOR = 2
+    TEXT_ITEM_DETAILS = 3
+    STATUS_BAR_COLOR = 4
+    HEADER_MSG_COLOR = 5
 
     MENU_COLOR_ON = 10
     MENU_COLOR_OFF = 11
@@ -237,6 +252,7 @@ class DockUI:
         curses.start_color()
         curses.init_pair(self.INFO_MESSAGE_COLOR, curses.COLOR_CYAN, curses.COLOR_BLACK)
         curses.init_pair(self.STATUS_BAR_COLOR, curses.COLOR_BLACK, curses.COLOR_WHITE)
+        curses.init_pair(self.HEADER_MSG_COLOR, curses.COLOR_WHITE, curses.COLOR_BLUE)
         curses.init_pair(self.TEXT_PANEL_COLOR, curses.COLOR_WHITE, curses.COLOR_BLACK)
         curses.init_pair(self.TEXT_ITEM_DETAILS, curses.COLOR_GREEN, curses.COLOR_BLACK)
 
@@ -247,6 +263,8 @@ class DockUI:
         curses.init_pair(self.LINE_SELECTED, curses.COLOR_BLACK, curses.COLOR_GREEN)
 
         curses.init_pair(self.PROGRESS_BAR, curses.COLOR_YELLOW, curses.COLOR_BLACK)
+
+        self._status_message = "Loading.."
 
         self.docker_queue = queue.Queue()
         self.docker_info = {}
@@ -293,7 +311,7 @@ class DockUI:
         )
 
     def _fetch_docker_info(self):
-        self.__notification = self.show_info("Fetching docker info...")
+        self._status_message = "Fetching docker info..."
         t = threading.Thread(
             target=fetch_docker_info,
             args=(self.docker_client, self.docker_queue),
@@ -313,9 +331,7 @@ class DockUI:
 
                 # refresh screen data
                 self._prepare_content()
-
-                if hasattr(self, "__notification"):
-                    del self.__notification
+                self._status_message = ""
 
                 return True
         except queue.Empty:
@@ -418,7 +434,10 @@ class DockUI:
             self.docker_info["Containers"] if "Containers" in self.docker_info else ""
         )
         volumes_count = (
-            len(self.docker_info["Volumes"]) if "Volumes" in self.docker_info else ""
+            len(self.docker_df["Volumes"]) if "Volumes" in self.docker_df else ""
+        )
+        build_cache_count = (
+            len(self.docker_df["BuildCache"]) if "BuildCache" in self.docker_df else ""
         )
 
         menu_items = {
@@ -426,7 +445,7 @@ class DockUI:
             f"Images {img_count}": self.VIEW_MODE_IMAGES,
             f"Containers {containers_count}": self.VIEW_MODE_CONTAINERS,
             f"Volumes {volumes_count}": self.VIEW_MODE_VOLUMES,
-            "BuildCache": self.VIEW_MODE_BUILD_CACHE,
+            f"BuildCache {build_cache_count}": self.VIEW_MODE_BUILD_CACHE,
             "System info": self.VIEW_MODE_SYSTEM_INFO,
         }
 
@@ -455,12 +474,21 @@ class DockUI:
 
         infostr = " | ".join(info)
 
-        self.w.attron(curses.color_pair(self.MENU_COLOR_SIZES))
         self.w.attron(curses.A_BOLD)
+        self.w.attron(curses.color_pair(self.MENU_COLOR_SIZES))
         self.w.addstr(1, self.width - 1 - len(infostr), infostr)
-        self.w.attroff(curses.A_BOLD)
         self.w.attroff(curses.color_pair(self.MENU_COLOR_SIZES))
+        self.w.attroff(curses.A_BOLD)
+
         self.w.addstr(2, 1, "─" * (self.width - 2))
+
+        if self._status_message != "":
+            msg = f" {self._status_message} "
+            self.w.attron(curses.color_pair(self.HEADER_MSG_COLOR))
+            self.w.attron(curses.A_BOLD)
+            self.w.addstr(0, (self.width - len(msg)) // 2, msg)
+            self.w.attroff(curses.A_BOLD)
+            self.w.attroff(curses.color_pair(self.HEADER_MSG_COLOR))
 
     def _client_height(self):
         return self.height - 5
@@ -763,7 +791,7 @@ class DockUI:
         if isinstance(item, str):
             content = [item]
         elif isinstance(item, DisplayTableRow):
-            content = item._get_display_info()
+            content = item._get_display_info(self.docker_client)
         else:
             content = [str(item)]
         self.show_text_panel(
