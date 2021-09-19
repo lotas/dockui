@@ -78,7 +78,7 @@ class DisplayTableRow:
             return self.row[index]
         return ""
 
-    def _get_display_info(self):
+    def _get_display_info(self, client=None, width=80):
         keys = self.row.keys()
         max_len = max([len(k) for k in keys])
         lines = []
@@ -88,9 +88,9 @@ class DisplayTableRow:
             for l in line.split("\n"):
                 if i > 0:
                     # ident json
-                    lines.append(" " * max_len + ": " + l)
+                    lines.append(" " * max_len + ": " + l[0 : width - max_len - 10])
                 else:
-                    lines.append(l)
+                    lines.append(l[0 : width - 10])
                 i += 1
 
         return lines
@@ -137,13 +137,13 @@ class DisplayTableVolumeRow(DisplayTableRow):
     def _get_labels(self):
         return json.dumps(self.row["Labels"], sort_keys=True, indent=2)
 
-    def _get_display_info(self, client):
+    def _get_display_info(self, client, width):
         data = super()._get_display_info()
 
         # data += [self.row["Mountpoint"], str(client)]
         root = self.row["Mountpoint"]
         du_entries = [k.replace(root, " ") for k in get_path_disk_usage(client, root)]
-        return data + ["-" * 50, "Disk Usage:"] + du_entries
+        return data + ["-" * (width - 10), "Disk Usage:"] + du_entries
 
 
 class DisplayTableContainerRow(DisplayTableRow):
@@ -791,7 +791,7 @@ class DockUI:
         if isinstance(item, str):
             content = [item]
         elif isinstance(item, DisplayTableRow):
-            content = item._get_display_info(self.docker_client)
+            content = item._get_display_info(self.docker_client, self.width)
         else:
             content = [str(item)]
         self.show_text_panel(
