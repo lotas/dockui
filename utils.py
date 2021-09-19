@@ -37,8 +37,7 @@ def determine_root_fs_usage(client):
 def get_path_disk_usage(client, path: str):
     du = client.containers.run(
         "alpine",
-        ["du", "-h", "-d", "1", path],
-        # ["ls", "-la", path],
+        ["du", "-h", "-d", "2", path],
         remove=True,
         volumes={
             "/var/lib/docker/volumes": {"bind": "/var/lib/docker/volumes", "mode": "ro"}
