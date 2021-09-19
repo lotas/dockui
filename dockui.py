@@ -1,3 +1,5 @@
+import threading
+import queue
 import docker
 import curses
 import json
@@ -5,9 +7,19 @@ from collections.abc import Iterable
 from utils import convert_size, format_date, determine_root_fs_usage, progress_bar
 
 
+CONFIG = {"BLOCKING_TIMEOUT": 100}
+
+
 def init_docker():
     client = docker.from_env()
     return client
+
+
+def fetch_docker_info(client, q):
+    info = client.info()
+    df = client.df()
+    fs = determine_root_fs_usage(client)
+    q.put({"docker_info": info, "docker_df": df, "docker_root_fs": fs})
 
 
 class DisplayStr:
@@ -220,6 +232,7 @@ class DockUI:
         self.cols = []
 
         curses.noecho()
+
         # Start colors in curses
         curses.start_color()
         curses.init_pair(self.INFO_MESSAGE_COLOR, curses.COLOR_CYAN, curses.COLOR_BLACK)
@@ -235,7 +248,12 @@ class DockUI:
 
         curses.init_pair(self.PROGRESS_BAR, curses.COLOR_YELLOW, curses.COLOR_BLACK)
 
+        self.docker_queue = queue.Queue()
+        self.docker_info = {}
+        self.docker_df = {}
+        self.docker_root_fs = []
         self._fetch_docker_info()
+
         self._prepare_content()
         self.loop()
 
@@ -275,11 +293,35 @@ class DockUI:
         )
 
     def _fetch_docker_info(self):
-        win = self.show_info("Fetching docker info...")
-        self.docker_info = self.docker_client.info()
-        self.docker_df = self.docker_client.df()
-        self.docker_root_fs = determine_root_fs_usage(self.docker_client)
-        del win
+        self.__notification = self.show_info("Fetching docker info...")
+        t = threading.Thread(
+            target=fetch_docker_info,
+            args=(self.docker_client, self.docker_queue),
+            daemon=True,
+        )
+        t.start()
+
+    def _consume_docker_thread(self):
+
+        try:
+            msg = self.docker_queue.get(False, CONFIG["BLOCKING_TIMEOUT"])
+
+            if msg:
+                self.docker_info = msg["docker_info"]
+                self.docker_df = msg["docker_df"]
+                self.docker_root_fs = msg["docker_root_fs"]
+
+                # refresh screen data
+                self._prepare_content()
+
+                if hasattr(self, "__notification"):
+                    del self.__notification
+
+                return True
+        except queue.Empty:
+            pass
+
+        return False
 
     def _prepare_content(self):
         mode_handlers = {
@@ -337,13 +379,26 @@ class DockUI:
             self.offset_y = self.offset_y - 1
 
     def loop(self):
-        while self.k != ord("q"):
-            self.w.erase()
-            self.height, self.width = self.w.getmaxyx()
-            self.process_input()
-            self.draw()
-            self.w.refresh()
-            self.k = self.w.getch()
+        last_key = self.k
+        got_message = False
+
+        # make blocking getch() wait at most this, so we can process results from other thread
+        self.w.timeout(CONFIG["BLOCKING_TIMEOUT"])
+
+        while last_key != ord("q"):
+            if last_key != -1 or got_message:
+                self.w.erase()
+                self.height, self.width = self.w.getmaxyx()
+
+                self.k = last_key
+                self.process_input()
+
+                self.draw()
+                self.w.refresh()
+
+            # getch() is blocking, but with timeout set, so we can also consume docker thread
+            last_key = self.w.getch()
+            got_message = self._consume_docker_thread()
 
     def draw(self):
         self.w.box()
@@ -358,11 +413,19 @@ class DockUI:
         # self.w.move(self.cursor_y, self.cursor_x)
 
     def draw_header(self):
+        img_count = self.docker_info["Images"] if "Images" in self.docker_info else ""
+        containers_count = (
+            self.docker_info["Containers"] if "Containers" in self.docker_info else ""
+        )
+        volumes_count = (
+            len(self.docker_info["Volumes"]) if "Volumes" in self.docker_info else ""
+        )
+
         menu_items = {
             "Summary": self.VIEW_MODE_SUMMARY,
-            f"Images {self.docker_info['Images']}": self.VIEW_MODE_IMAGES,
-            f"Containers {self.docker_info['Containers']}": self.VIEW_MODE_CONTAINERS,
-            f"Volumes {len(self.docker_df['Volumes'])}": self.VIEW_MODE_VOLUMES,
+            f"Images {img_count}": self.VIEW_MODE_IMAGES,
+            f"Containers {containers_count}": self.VIEW_MODE_CONTAINERS,
+            f"Volumes {volumes_count}": self.VIEW_MODE_VOLUMES,
             "BuildCache": self.VIEW_MODE_BUILD_CACHE,
             "System info": self.VIEW_MODE_SYSTEM_INFO,
         }
@@ -378,11 +441,20 @@ class DockUI:
             self.w.attroff(curses.color_pair(color))
             offset = offset + len(text) + 4
 
-        infostr = (
-            f"Disk: {convert_size(self.docker_root_fs[0])} / {convert_size(self.docker_root_fs[1])} | "
-            f'Layers: {convert_size(self.docker_df["LayersSize"])} | '
-            f'Builder: {convert_size(self.docker_df["BuilderSize"])}'
-        )
+        info = []
+        if len(self.docker_root_fs) > 1:
+            info.append(
+                f"Disk: {convert_size(self.docker_root_fs[0])} / {convert_size(self.docker_root_fs[1])}"
+            )
+
+        if "LayersSize" in self.docker_df:
+            info.append(f'Layers: {convert_size(self.docker_df["LayersSize"])}')
+
+        if "BuilderSize" in self.docker_df:
+            info.append(f'Builder: {convert_size(self.docker_df["BuilderSize"])}')
+
+        infostr = " | ".join(info)
+
         self.w.attron(curses.color_pair(self.MENU_COLOR_SIZES))
         self.w.attron(curses.A_BOLD)
         self.w.addstr(1, self.width - 1 - len(infostr), infostr)
@@ -569,7 +641,7 @@ class DockUI:
             "Images",
         ]
 
-        self.rows = [DisplayKeyVal(k, di[k]) for k in main_keys] + [
+        self.rows = [DisplayKeyVal(k, di[k] if k in di else "") for k in main_keys] + [
             DisplayKeyVal(k, di[k]) for k in di.keys()
         ]
         self.render_mode = self.RENDER_MODE_ROWS
