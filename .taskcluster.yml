@@ -1,0 +1,49 @@
+version: 1
+policy:
+  pullRequests: public
+tasks:
+  $match:
+    'tasks_for == "github-pull-request" && event["action"] in ["opened", "reopened", "synchronize"]':
+      taskId: {$eval: as_slugid("pr_task")}
+      taskQueueId: proj-taskcluster/ci
+      scopes:
+        - secrets:get:project/taskcluster/testing/taskcluster-github
+      payload:
+        maxRunTime: 600
+        image: "node:8"
+        env:
+          DEBUG: "* -mocha* -nock* -express* -body-parser* -eslint*"
+        features:
+          taskclusterProxy: true
+        command:
+          - "/bin/bash"
+          - "-lc"
+          - "git clone ${event.pull_request.head.repo.git_url} repo && cd repo && git checkout ${event.pull_request.head.sha} && make format"
+      metadata:
+        name: "Taskcluster GitHub Tests"
+        description: "All tests"
+        owner: ${event.pull_request.user.login}@users.noreply.github.com
+        source: ${event.repository.url}
+    'tasks_for == "github-push"':
+      taskId: {$eval: as_slugid("push_task")}
+      taskQueueId: proj-taskcluster/ci
+      scopes:
+        - secrets:get:project/taskcluster/testing/taskcluster-github
+      payload:
+        maxRunTime: 600
+        image: "node:8"
+        env:
+          DEBUG: "* -mocha* -nock* -express* -body-parser* -eslint*"
+          NO_TEST_SKIP: "true"
+        features:
+          taskclusterProxy: true
+        command:
+          - "/bin/bash"
+          - "-lc"
+          - "git clone ${event.repository.url} repo && cd repo && git checkout ${event.after} && make format"
+      metadata:
+        name: "Taskcluster GitHub Tests"
+        description: "All tests"
+        owner: ${event.pusher.name}@users.noreply.github.com
+        source: ${event.repository.url}
+
