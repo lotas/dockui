@@ -23,7 +23,7 @@ tasks:
       - taskId: { $eval: as_slugid("lint_and_tests_task") }
         created: { $fromNow: "" }
         deadline: { $fromNow: "1 hour" }
-        provisionerId: proj-misc
+        provisionerId: built-in/success
         workerType: ci
         payload:
           maxRunTime: 3600
@@ -39,4 +39,4 @@ tasks:
           name: taskcluster_yml_validator lint and tests
           description: taskcluster_yml_validator lint and tests
           owner: mcastelluccio@mozilla.com
-          source: ${repository}/raw/${head_rev}/.taskcluster.yml 
+          source: ${repository}/raw/${head_rev}/.taskcluster.yml
