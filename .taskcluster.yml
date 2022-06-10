@@ -23,7 +23,7 @@ tasks:
       - taskId: { $eval: as_slugid("lint_and_tests_task") }
         created: { $fromNow: "" }
         deadline: { $fromNow: "1 hour" }
-        provisionerId: built-in/success
+        provisionerId: built-in
         workerType: ci
         payload:
           maxRunTime: 3600
