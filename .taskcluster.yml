@@ -23,8 +23,8 @@ tasks:
       - taskId: { $eval: as_slugid("lint_and_tests_task") }
         created: { $fromNow: "" }
         deadline: { $fromNow: "1 hour" }
-        provisionerId: built-in/success
-        workerType: ci
+        provisionerId: built-in
+        workerType: success
         payload:
           maxRunTime: 3600
           image: python
@@ -36,7 +36,7 @@ tasks:
               pip install --quiet -r requirements.txt &&
               make format"
         metadata:
-          name: taskcluster_yml_validator lint and tests
-          description: taskcluster_yml_validator lint and tests
-          owner: mcastelluccio@mozilla.com
+          name: lint and tests
+          description: tc test
+          owner: yarik@mozilla.com
           source: ${repository}/raw/${head_rev}/.taskcluster.yml
