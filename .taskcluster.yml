@@ -1,42 +1,37 @@
 version: 1
 policy:
-  pullRequests: public
+  pullRequests: collaborators
 tasks:
   $let:
-    user: ${event.sender.login}
-
     head_rev:
-      $if: 'tasks_for == "github-pull-request"'
+      $if: tasks_for == "github-pull-request"
       then: ${event.pull_request.head.sha}
-      else:
-        $if: 'tasks_for == "github-push"'
-        then: ${event.after}
-        else: ${event.release.tag_name}
-
+      else: ${event.after}
     repository:
-      $if: 'tasks_for == "github-pull-request"'
+      $if: tasks_for == "github-pull-request"
       then: ${event.pull_request.head.repo.html_url}
       else: ${event.repository.html_url}
   in:
-    $if: 'tasks_for == "github-push" || (tasks_for == "github-pull-request" && event["action"] in ["opened", "reopened", "synchronize"])'
-    then:
-      - taskId: { $eval: as_slugid("lint_and_tests_task") }
-        created: { $fromNow: "" }
-        deadline: { $fromNow: "1 hour" }
-        provisionerId: built-in
-        workerType: success
+    $match:
+      (tasks_for == "github-pull-request" && event["action"] in ["opened","reopened","synchronize"]):
+        taskId:
+          $eval: as_slugid("test")
+        deadline:
+          $fromNow: 1 day
+        taskQueueId: proj-getting-started/tutorial
+        metadata:
+          name: Test1
+          description: test taskcluter
+          owner: ${event.sender.login}@users.noreply.github.com
+          source: ${event.repository.url}
         payload:
           maxRunTime: 3600
-          image: python
+          image: python:latest
           command:
-            - "/bin/bash"
-            - "-lcx"
-            - "git clone --quiet ${repository} &&
-              git -c advice.detachedHead=false checkout ${head_rev} &&
-              pip install --quiet -r requirements.txt &&
-              make format"
-        metadata:
-          name: lint and tests
-          description: tc test
-          owner: yarik@mozilla.com
-          source: ${repository}/raw/${head_rev}/.taskcluster.yml
+            - /bin/bash
+            - '--login'
+            - '-c'
+            - >-
+              git clone ${repository repo && cd repo && git config
+              advice.detachedHead false && git checkout ${head_rev} && pip
+              install tox && tox
