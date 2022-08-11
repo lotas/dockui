@@ -3,7 +3,6 @@ reporting: checks-v1
 policy:
   pullRequests: collaborators
 tasks:
-tasks:
   - $if: 'tasks_for == "github-push"'
     then:
       taskQueueId: docker-compose/generic-worker
