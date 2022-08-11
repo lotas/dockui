@@ -30,7 +30,4 @@ tasks:
             - - /bin/bash
               - '--login'
               - '-c'
-              - >-
-                git clone ${repository repo && cd repo && git config
-                advice.detachedHead false && git checkout ${head_rev} && pip
-                install tox && tox
+              - "git clone ${repository repo && cd repo && git config advice.detachedHead false && git checkout ${head_rev} && pip install"
