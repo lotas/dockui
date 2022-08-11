@@ -13,12 +13,12 @@ tasks:
       else: ${event.repository.html_url}
   in:
     $match:
-      (tasks_for == "github-pull-request" && event["action"] in ["opened","reopened","synchronize"]):
+      (tasks_for == "github-push") || (tasks_for == "github-pull-request" && event["action"] in ["opened","synchronize"]):
         taskId:
           $eval: as_slugid("test")
         deadline:
           $fromNow: 1 day
-        taskQueueId: proj-getting-started/tutorial
+        taskQueueId: docker-compose/generic-worker
         metadata:
           name: Test1
           description: test taskcluter
@@ -26,12 +26,11 @@ tasks:
           source: ${event.repository.url}
         payload:
           maxRunTime: 3600
-          image: python:latest
           command:
-            - /bin/bash
-            - '--login'
-            - '-c'
-            - >-
-              git clone ${repository repo && cd repo && git config
-              advice.detachedHead false && git checkout ${head_rev} && pip
-              install tox && tox
+            - - /bin/bash
+              - '--login'
+              - '-c'
+              - >-
+                git clone ${repository repo && cd repo && git config
+                advice.detachedHead false && git checkout ${head_rev} && pip
+                install tox && tox
