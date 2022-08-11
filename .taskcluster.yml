@@ -1,33 +1,41 @@
 version: 1
+reporting: checks-v1
 policy:
   pullRequests: collaborators
 tasks:
-  $let:
-    head_rev:
-      $if: tasks_for == "github-pull-request"
-      then: ${event.pull_request.head.sha}
-      else: ${event.after}
-    repository:
-      $if: tasks_for == "github-pull-request"
-      then: ${event.pull_request.head.repo.html_url}
-      else: ${event.repository.html_url}
-  in:
-    $match:
-      (tasks_for == "github-push") || (tasks_for == "github-pull-request" && event["action"] in ["opened","synchronize"]):
-        taskId:
-          $eval: as_slugid("test")
-        deadline:
-          $fromNow: 1 day
+tasks:
+  - $if: 'tasks_for == "github-push"'
+    then:
+      taskQueueId: docker-compose/generic-worker
+      schedulerId: taskcluster-ui
+      created: {$fromNow: ''}
+      deadline: {$fromNow: '1 day'}
+      payload:
+        command:
+          - - /bin/bash
+            - '-c'
+            - echo "github-push"; exit 0
+        maxRunTime: 30
+      metadata:
+        name: example-task
+        description: An **example** task
+        owner: ykurmyza@mozilla.com
+        source: http://taskcluster/tasks/create
+    else:
+      $if: 'tasks_for == "github-pull-request"'
+      then:
         taskQueueId: docker-compose/generic-worker
-        metadata:
-          name: Test1
-          description: test taskcluter
-          owner: ${event.sender.login}@users.noreply.github.com
-          source: ${event.repository.url}
+        schedulerId: taskcluster-ui
+        created: {$fromNow: ''}
+        deadline: {$fromNow: '1 day'}
         payload:
-          maxRunTime: 3600
           command:
             - - /bin/bash
-              - '--login'
               - '-c'
-              - "git clone ${repository repo && cd repo && git config advice.detachedHead false && git checkout ${head_rev} && pip install"
+              - echo "github-pull-request"; exit 0
+          maxRunTime: 30
+        metadata:
+          name: example-task
+          description: An **example** task
+          owner: ykurmyza@mozilla.com
+          source: http://taskcluster/tasks/create
