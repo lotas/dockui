@@ -25,3 +25,4 @@ This utility can be used to see what can be deleted and pruned.
 
 # Check TC
  +1
+ +2
