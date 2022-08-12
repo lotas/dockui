@@ -16,7 +16,7 @@ tasks:
             - echo "github-push"; exit 0
         maxRunTime: 30
       metadata:
-        name: example-task
+        name: example-task-push-1
         description: An **example** task
         owner: ykurmyza@mozilla.com
         source: http://taskcluster/tasks/create
@@ -34,7 +34,7 @@ tasks:
               - echo "github-pull-request"; exit 0
           maxRunTime: 30
         metadata:
-          name: example-task
+          name: example-task-pull-1
           description: An **example** task
           owner: ykurmyza@mozilla.com
           source: http://taskcluster/tasks/create
@@ -51,7 +51,7 @@ tasks:
             - echo "github-push"; exit 0
         maxRunTime: 30
       metadata:
-        name: example-task
+        name: example-task-push-2
         description: An **example** task
         owner: ykurmyza@mozilla.com
         source: http://taskcluster/tasks/create
@@ -69,7 +69,7 @@ tasks:
               - echo "github-pull-request"; exit 0
           maxRunTime: 30
         metadata:
-          name: example-task
+          name: example-task-pull-2
           description: An **example** task
           owner: ykurmyza@mozilla.com
           source: http://taskcluster/tasks/create
