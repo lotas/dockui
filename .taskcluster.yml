@@ -38,3 +38,38 @@ tasks:
           description: An **example** task
           owner: ykurmyza@mozilla.com
           source: http://taskcluster/tasks/create
+  - $if: 'tasks_for == "github-push"'
+    then:
+      taskQueueId: docker-compose/generic-worker
+      schedulerId: taskcluster-ui
+      created: {$fromNow: ''}
+      deadline: {$fromNow: '1 day'}
+      payload:
+        command:
+          - - /bin/bash
+            - '-c'
+            - echo "github-push"; exit 0
+        maxRunTime: 30
+      metadata:
+        name: example-task
+        description: An **example** task
+        owner: ykurmyza@mozilla.com
+        source: http://taskcluster/tasks/create
+    else:
+      $if: 'tasks_for == "github-pull-request"'
+      then:
+        taskQueueId: docker-compose/generic-worker
+        schedulerId: taskcluster-ui
+        created: {$fromNow: ''}
+        deadline: {$fromNow: '1 day'}
+        payload:
+          command:
+            - - /bin/bash
+              - '-c'
+              - echo "github-pull-request"; exit 0
+          maxRunTime: 30
+        metadata:
+          name: example-task
+          description: An **example** task
+          owner: ykurmyza@mozilla.com
+          source: http://taskcluster/tasks/create
